@@ -9,19 +9,18 @@ import threading
 from contextlib import contextmanager
 import re
 
-op_exceptions = ['boolean']
+work_path = os.getcwd()
 irs_path = '/home/nsemaev/Documents/ops/'
+skipped_ops = ['boolean']
 binary_path = '/home/nsemaev/CLionProjects/openvino/bin/intel64/Debug/conformanceTests'
-
 
 class GTestParallel():
 	def __init__(self, op: str):
 		self.op = op
-		self.execute_path = os.getcwd()
-		self.op_path = f"{self.execute_path}/{self.op}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+		self.op_path = f"{work_path}/{self.op}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
 		self.op_completed_path = f"{self.op_path}_completed"
 		self.op_stopped_path = f"{self.op_path}_stopped"
-		self.command = f"python3 {self.execute_path}/gtest_parallel.py {binary_path} -d . " + \
+		self.command = f"python3 {work_path}/gtest_parallel.py {binary_path} -d . " + \
 			f"--gtest_filter=*ReadIRTest*{self.op}* " + \
 			f"-- " + \
 			f"--input_folders={irs_path}/{self.op} " + \
@@ -44,7 +43,7 @@ class GTestParallel():
 		# 	print('HWLLO')
 		threading.Thread(target=os.system, args=(f"cd {self.op_path} && {self.command}",)).start()
 		# _thread.start_new_thread(os.system, (f"cd {self.op_path} && nohup {self.command}",))
-		os.chdir(self.execute_path)
+		os.chdir(work_path)
 		# statuses = ['passed', 'failed']
 		start_time = time.time()
 		while True:
@@ -105,6 +104,9 @@ if __name__ == '__main__1':
 
 
 if __name__ == '__main__':
-	ops = sorted([op for op in os.listdir(irs_path) if op not in op_exceptions])
+	completed_ops = [op.split('_')[0] for op in os.listdir(work_path) if op.split('_')[-1] == 'completed']
+	# print(completed_ops, len(completed_ops))
+	ops = sorted([op for op in os.listdir(irs_path) if op not in skipped_ops and op not in completed_ops])
+	# print(ops, len(ops))
 	for op in ops:
 		GTestParallel(op).run_while_not_end(time_limited=False)
