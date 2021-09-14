@@ -8,6 +8,7 @@ import _thread
 import threading
 from contextlib import contextmanager
 import re
+import xlsxwriter
 
 work_path = os.getcwd()
 irs_path = '/home/nsemaev/Documents/ops/'
@@ -87,6 +88,31 @@ class GTestParallel():
 		os.rename(self.op_path, self.op_completed_path)
 		return True
 
+def generate_xlsx():
+	workbook = xlsxwriter.Workbook(f"{work_path}/report.xlsx")
+	worksheet = workbook.add_worksheet('report')
+	worksheet.write('A1', 'Operation', workbook.add_format({"bold": True}))
+	worksheet.write('B1', 'Status', workbook.add_format({"bold": True}))
+	worksheet.write('C1', 'Crashes', workbook.add_format({"bold": True}))
+	worksheet.write('D1', 'Logs', workbook.add_format({"bold": True}))
+	for i, op in enumerate(sorted(os.listdir(irs_path))):
+		worksheet.write(i + 1, 0, op)
+		folders = [folder for folder in os.listdir(work_path) if folder.startswith(op) and folder.endswith('completed')]
+		if folders:
+			folder_completed = sorted(folders)[-1]
+			report_file = f"{work_path}/{folder_completed}/{op}_failed_logs_result.txt"
+			if os.path.isfile(report_file):
+				worksheet.write(i + 1, 1, 'some tests were crashed')
+				with open(report_file, 'r', encoding='utf-8') as file:
+					lines = file.readlines()
+					worksheet.write(i + 1, 2, len(lines))
+					worksheet.write(i + 1, 3, ''.join(lines))
+			else:
+				worksheet.write(i + 1, 1, 'all tests were passed')
+		else:
+			worksheet.write(i + 1, 1, 'the tests were not successfully completed')
+	workbook.close()
+
 if __name__ == '__main__1':
 	ops = os.listdir(irs_path)
 	# ops = ['Broadcast', 'Cos']  # 'AvgPool', 'Broadcast', 'Cos', 'boolean'
@@ -110,3 +136,4 @@ if __name__ == '__main__':
 	# print(ops, len(ops))
 	for op in ops:
 		GTestParallel(op).run_while_not_end(time_limited=False)
+	generate_xlsx()
