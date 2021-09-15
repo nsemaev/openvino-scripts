@@ -148,4 +148,4 @@ if __name__ == '__main__':
 	# print(ops, len(ops))
 	for op in ops:
 		GTestParallel(op).run_while_not_end(time_limited=False)
-	generate_xlsx()
+		generate_xlsx()
