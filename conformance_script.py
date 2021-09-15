@@ -146,6 +146,6 @@ if __name__ == '__main__':
 	# print(completed_ops, len(completed_ops))
 	ops = sorted([op for op in os.listdir(irs_path) if op not in skipped_ops + completed_ops + time_wasting_ops])
 	# print(ops, len(ops))
-	# for op in ops:
-	# 	GTestParallel(op).run_while_not_end(time_limited=False)
+	for op in ops:
+		GTestParallel(op).run_while_not_end(time_limited=False)
 	generate_xlsx()
