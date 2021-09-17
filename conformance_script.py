@@ -34,6 +34,7 @@ class GTestParallel():
 			f"--output_folder={self.op_path}/gtest-parallel-xmls"
 
 	def run_while_not_end(self, op_time=30, time_limited=True):
+		process_start_time = time.time()
 		current_time = datetime.now().strftime('%Y_%m_%d %H:%M:%S')
 		print(f"{current_time} {self.op} was started")
 		print(self.command)
@@ -93,6 +94,7 @@ class GTestParallel():
 				
 
 		print(f"{datetime.now().strftime('%Y_%m_%d %H:%M:%S')} {self.op} was completed")
+		self.op_completed_path = f"{self.op_path}_{int(time.time() - process_start_time)}s_completed"
 		os.rename(self.op_path, self.op_completed_path)
 		return True
 
@@ -144,8 +146,8 @@ if __name__ == '__main__1':
 if __name__ == '__main__':
 	completed_ops = [op.split('_')[0] for op in os.listdir(work_path) if op.split('_')[-1] == 'completed']
 	# print(completed_ops, len(completed_ops))
-	ops = sorted([op for op in os.listdir(irs_path) if op not in skipped_ops + completed_ops + time_wasting_ops])
+	ops = sorted([op for op in os.listdir(irs_path) if op not in skipped_ops + completed_ops])
 	# print(ops, len(ops))
-	for op in ops:
+	for op in ['Broadcast']:
 		GTestParallel(op).run_while_not_end(time_limited=False)
 		generate_xlsx()
