@@ -1,4 +1,5 @@
 import os
+from os import path
 import sys
 import time
 from datetime import datetime
@@ -9,15 +10,24 @@ import threading
 from contextlib import contextmanager
 import re
 import xlsxwriter
+from bs4 import BeautifulSoup
+
 
 work_path = os.getcwd()
 irs_path = '/home/nsemaev/Documents/ops/'
 skipped_ops = ['boolean']
 time_wasting_ops = ['Convolution', 'ConvolutionBackpropData', 'DeformableConvolution', 
-'GroupConvolution', 'GroupConvolutionBackpropData']
-# binary_path = '/home/nsemaev/CLionProjects/openvino/bin/intel64/Debug/conformanceTests'
+					'GroupConvolution', 'GroupConvolutionBackpropData']
 binary_path = f"{work_path}/conformanceTests"
 ping_time = 60 * 5
+run_results = ['passed', 'failed']
+ci_results = ['passed', 'failed', 'skipped', 'crashed']
+
+# kill -9 $(pgrep -f python3) && kill -9 $(pgrep -f conformanceTests)
+
+all_ops = sorted(os.listdir(irs_path))
+completed_ops = [op.split('_')[0] for op in os.listdir(work_path) if op.split('_')[-1] == 'completed']
+logs_files = {}
 
 class GTestParallel():
 	def __init__(self, op: str):
@@ -38,15 +48,10 @@ class GTestParallel():
 		current_time = datetime.now().strftime('%Y_%m_%d %H:%M:%S')
 		print(f"{current_time} {self.op} was started")
 		print(self.command)
-		exit 
 		if os.path.exists(self.op_path):
 			shutil.rmtree(self.op_path)
 		os.mkdir(self.op_path)
 		os.chdir(self.op_path)
-		# sys.stdout = open(os.devnull, "w")
-		# sys.stderr = open(os.devnull, "w")
-		# with suppress_stdout():
-		# 	print('HWLLO')
 		threading.Thread(target=os.system, args=(f"cd {self.op_path} && {self.command}",)).start()
 		# _thread.start_new_thread(os.system, (f"cd {self.op_path} && nohup {self.command}",))
 		os.chdir(work_path)
@@ -98,34 +103,103 @@ class GTestParallel():
 		os.rename(self.op_path, self.op_completed_path)
 		return True
 
-def generate_xlsx():
-	workbook = xlsxwriter.Workbook(f"{work_path}/report.xlsx")
-	worksheet = workbook.add_worksheet('report')
-	worksheet.write('A1', 'Operation', workbook.add_format({"bold": True}))
-	worksheet.write('B1', 'Status', workbook.add_format({"bold": True}))
-	worksheet.write('C1', 'Info', workbook.add_format({"bold": True}))
-	worksheet.write('D1', 'Crashes', workbook.add_format({"bold": True}))
-	worksheet.write('E1', 'Logs', workbook.add_format({"bold": True}))
-	for i, op in enumerate(sorted(os.listdir(irs_path))):
-		# worksheet.write_blank (i + 1, 0, '',    )
-		folders = [folder for folder in os.listdir(work_path) if folder.startswith(op) and folder.endswith('completed')]
-		if folders:
-			folder_completed = sorted(folders)[-1]
-			report_file = f"{work_path}/{folder_completed}/{op}_failed_logs_result.txt"
-			if os.path.isfile(report_file):
-				worksheet.write(i + 1, 0, op, workbook.add_format({'font_color': 'red'}))
-				worksheet.write(i + 1, 1, 'failed', workbook.add_format({'font_color': 'red'}))
-				with open(report_file, 'r', encoding='utf-8') as file:
-					lines = file.readlines()
-					worksheet.write(i + 1, 3, len(lines))
-					worksheet.write(i + 1, 4, ''.join(lines))
-			else:
-				worksheet.write(i + 1, 0, op, workbook.add_format({'font_color': 'green'}))
-				worksheet.write(i + 1, 1, 'all passed', workbook.add_format({'font_color': 'green'}))
+# def autofit_xlsx(workbook_path: str):
+# 	workbook = xlsxwriter.Workbook(workbook_path)
+# 	worksheet = workbook
+
+def generate_run_data():
+	data = {}
+	for i, op in enumerate(all_ops):
+		run_folders = [folder for folder in os.listdir(work_path) 
+					if folder.startswith(op) and folder.endswith('completed')]
+		if run_folders:
+			run_folder = sorted(run_folders)[-1]
+			run_path = f"{work_path}/{run_folder}"
+			data[op] = {}
+			for result in run_results:
+				result_path = f"{run_path}/gtest-parallel-logs/{result}"
+				data[op][result] = len(os.listdir(result_path)) if path.exists(result_path) else 0
+
+			failed_report = f"{run_path}/{op}_failed_logs_result.txt"
+			if path.exists(failed_report):
+				logs_files[op] = failed_report
 		else:
-			worksheet.write(i + 1, 0, op)
-			worksheet.write(i + 1, 1, 'untested')
+			data[op] = {result: 'untested' for result in run_results}
+	return data
+
+def generate_ci_data():
+	data = {}
+	with open('report_dlb.html', 'r') as file:
+		soup = BeautifulSoup(str(file.read()), 'html.parser')
+	tbody = soup.findAll('tbody')[1]
+	for op_tr in tbody.findAll('tr'):
+		op = op_tr.findAll('th')[0].text.split('-')[0]
+		template_td = op_tr.findAll('td')[0]
+		data[op] = {result: 'untested' for result in ci_results}
+		for result in data[op]:
+			if len(template_td.find_all('span')) == 4:
+				first_letter = result[0].upper()
+				data[op][result] = int(re.findall(fr"{first_letter}:(\d+)", template_td.text)[0])
+	return data
+
+
+def generate_xlsx():
+	columns = ['Operation', 'Info'] + \
+				[f"RUN {result}" for result in run_results] + \
+				[f"CI {result}" for result in ci_results] + ['RUN logs']
+	columns_len = [len(column) for column in columns]
+	run_data = generate_run_data()
+	ci_data = generate_ci_data()
+	ops = sorted(list(set(list(run_data.keys()) + list(ci_data.keys()))))
+
+	# TODO: Delete operations that have 100% passrate in both lists, a better algorithm
+	bad_ops = []
+	for op in ops:
+		flag = False
+		if op in run_data:
+			for result in run_results:
+				if result not in ['passed']:
+					if run_data[op][result] != 'untested' and int(run_data[op][result]) > 0:
+						flag = True
+						break
+		if op in ci_data:
+			for result in ci_results:
+				if result not in ['passed']:
+					if ci_data[op][result] != 'untested' and int(ci_data[op][result]) > 0:
+						flag = True
+						break
+		if flag:
+			bad_ops.append(op)
+	ops = bad_ops
+
+	workbook_path = f"{work_path}/{datetime.now().strftime('%Y_%m_%d__%H_%M_%S')}_report.xlsx"
+	workbook = xlsxwriter.Workbook(workbook_path)
+	worksheet = workbook.add_worksheet('report')
+	for i, column in enumerate(columns):
+		worksheet.write(0, i, column, workbook.add_format({"bold": True}))
+	for i, op in enumerate(ops):
+		shift = 0
+		worksheet.write(i + 1, shift, op)
+		columns_len[shift] = max(columns_len[shift], len(str(op)))
+		shift += 2
+		if op in run_data:
+			for j, result in enumerate(run_results):
+				worksheet.write(i + 1, j + shift, run_data[op][result])
+		shift += len(run_results)
+		if op in ci_data:
+			for j, result in enumerate(ci_results):
+				worksheet.write(i + 1, j + shift, ci_data[op][result])
+		shift += len(ci_results)
+		if op in logs_files:
+			with open(logs_files[op], 'r', encoding='utf-8') as file:
+				worksheet.write(i + 1, shift, ''.join(file.readlines()))
+
+
+	for i, column_len in enumerate(columns_len):
+		if column_len > 0:
+			worksheet.set_column(i, i, column_len)
 	workbook.close()
+
 
 if __name__ == '__main__1':
 	ops = os.listdir(irs_path)
@@ -144,10 +218,14 @@ if __name__ == '__main__1':
 
 
 if __name__ == '__main__':
-	completed_ops = [op.split('_')[0] for op in os.listdir(work_path) if op.split('_')[-1] == 'completed']
-	# print(completed_ops, len(completed_ops))
-	ops = sorted([op for op in os.listdir(irs_path) if op not in skipped_ops + completed_ops])
-	# print(ops, len(ops))
+	# # print(completed_ops, len(completed_ops))
+	ops = [op for op in all_ops if op not in skipped_ops + completed_ops]
+	# # print(ops, len(ops))
 	for op in ops:
 		GTestParallel(op).run_while_not_end(time_limited=False)
 		generate_xlsx()
+	generate_xlsx()
+
+	# print(generate_run_data())
+	# print(generate_ci_data())
+	# generate_xlsx()
