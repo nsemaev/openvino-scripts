@@ -42,6 +42,7 @@ class GTestParallel():
 			f"--device=TEMPLATE " + \
 			f"--report_unique_name " + \
 			f"--output_folder={self.op_path}/gtest-parallel-xmls"
+		self.report_command = f"python3 {work_path}/merge_xmls.py -i ./gtest-parallel-xmls/ -o ./"
 
 	def run_while_not_end(self, op_time=30, time_limited=True):
 		process_start_time = time.time()
@@ -96,8 +97,10 @@ class GTestParallel():
 					# with open(log_path, 'r', encoding='utf-8') as file:
 					# 	print(file.read())
 
-				
-
+		
+		threading.Thread(target=os.system, args=(f"cd {self.op_path} && {self.report_command}",)).start()
+		while (not os.path.exists(f"{self.op_path}/report.xml")):
+			pass
 		print(f"{datetime.now().strftime('%Y_%m_%d %H:%M:%S')} {self.op} was completed")
 		self.op_completed_path = f"{self.op_path}_{int(time.time() - process_start_time)}s_completed"
 		os.rename(self.op_path, self.op_completed_path)
@@ -142,9 +145,19 @@ def generate_ci_data():
 				data[op][result] = int(re.findall(fr"{first_letter}:(\d+)", template_td.text)[0])
 	return data
 
+def get_from_TensorIterator_report(op: str):
+	result = 'TensorIterator not tested'
+	folders = [folder for folder in os.listdir(work_path) 
+		if folder.split('_')[0] == 'TensorIterator' and folder.split('_')[-1] == 'completed']
+	if folders:
+		report_path = f"{work_path}/{sorted(folders)[-1]}/report.xml"
+		with open(report_path, 'r', encoding='utf-8') as file:
+			re_str = rf'<{op}-\d+ passed="\d+" failed="\d+" skipped="\d+" crashed="\d+" passrate="\d+\.\d+" />'
+			result = ''.join(re.findall(re_str, file.read()))	
+	return result
 
 def generate_xlsx():
-	columns = ['Operation', 'Info'] + \
+	columns = ['Operation', 'TensorIterator', 'Info', 'Group'] + \
 				[f"RUN {result}" for result in run_results] + \
 				[f"CI {result}" for result in ci_results] + ['RUN logs']
 	columns_len = [len(column) for column in columns]
@@ -181,7 +194,11 @@ def generate_xlsx():
 		shift = 0
 		worksheet.write(i + 1, shift, op)
 		columns_len[shift] = max(columns_len[shift], len(str(op)))
-		shift += 2
+		shift += 1
+		data = get_from_TensorIterator_report(op)
+		if data is not None:
+			worksheet.write(i + 1, shift, data)
+		shift += 3
 		if op in run_data:
 			for j, result in enumerate(run_results):
 				worksheet.write(i + 1, j + shift, run_data[op][result])
@@ -218,9 +235,8 @@ if __name__ == '__main__1':
 
 
 if __name__ == '__main__':
-	# # print(completed_ops, len(completed_ops))
+	# print(get_from_TensorIterator_report('Add'))
 	ops = [op for op in all_ops if op not in skipped_ops + completed_ops]
-	# # print(ops, len(ops))
 	for op in ops:
 		GTestParallel(op).run_while_not_end(time_limited=False)
 		generate_xlsx()
